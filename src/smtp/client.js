@@ -16,13 +16,17 @@ const resolveMailHost = require('./../resolveMailHost.js');
 
 //SMTP client
 class SMTPClient {
-	constructor(address) {
+	constructor(address, options = {}) {
 		this.address = address;
 		
 		//parse email address
 		const parsed = parseAddress(address);
 		this.user = parsed.user;
 		this.domain = parsed.domain;
+		
+		//options
+		this.customName = options.customName;
+		this.requireTls = options.requireTls;
 	}
 	
 	async sendMail(to = this.address, subject = 'Subject', body = 'Hello, world.', options) {
@@ -36,11 +40,23 @@ class SMTPClient {
 		await connection.connect(await resolveMailHost(targetHost.domain), options);
 		
 		//hello
-		await connection.sendCommand(`EHLO ${this.domain}\r\n`);
+		let extensions = (await connection.sendCommand(`EHLO ${this.domain}\r\n`)).contents;
 		
 		//start tls
-		await connection.sendCommand('STARTTLS\r\n'); //start tls connect
-		connection.startTls();
+		if (extensions.includes('STARTTLS')) {
+			await connection.sendCommand('STARTTLS\r\n'); //start tls connect
+			await connection.startTls();
+			
+			//hello again
+			extensions = (await connection.sendCommand(`EHLO ${this.domain}\r\n`)).contents;
+		} else if (this.requireTls) {
+			//end connect
+			await connection.sendCommand('QUIT\r\n');
+			connection.socket.destroy();
+			
+			//throw error
+			throw new Error('Target server does not support TLS, but required by client.')
+		}
 		
 		//send mail commands
 		await connection.sendCommand(`MAIL FROM:<${this.address}>\r\n`); //from
@@ -50,16 +66,17 @@ class SMTPClient {
 		await connection.sendCommand('DATA\r\n') //start command
 		await connection.sendCommand(
 			`Date: ${(new Date()).toUTCString()}\r\n` + //current date
-			`From: ${this.address}\r\n` +
+			`From: ${this.customName ? `"${this.customName}" ` : ''}${this.address}\r\n` +
 			`To: ${to}\r\n` +
 			`Subject: ${subject}\r\n` +
-			`Message-ID: <${crypto.randomUUID()}@${this.host}>\r\n\r\n` +
+			`Message-ID: <${crypto.randomUUID()}@${this.domain}>\r\n\r\n` +
 			body +
 			'\r\n.\r\n'
 		);
 		
 		//end connect
 		await connection.sendCommand('QUIT\r\n');
+		connection.socket.destroy();
 		
 		return;
 	}

@@ -36,7 +36,7 @@ class SMTPClientConnection {
 		await new Promise((resolve, reject) => {
 			cb = (line) => {
 				response.contents.push(line.slice(4));
-				response.code = line.slice(0, 3);
+				response.code = parseInt(line.slice(0, 3));
 				if (line[3] !== '-') resolve();
 			};
 			
@@ -66,7 +66,7 @@ class SMTPClientConnection {
 		await new Promise((resolve, reject) => {
 			cb = (line) => {
 				response.contents.push(line.slice(4));
-				response.code = line.slice(0, 3);
+				response.code = parseInt(line.slice(0, 3));
 				if (line[3] !== '-') resolve();
 			};
 
@@ -76,12 +76,18 @@ class SMTPClientConnection {
 		//remove listener
 		this.rl.removeListener('line', cb);
 		
+		//debug
+		if (this.client.debug) console.log(command, response);
+		
 		//return
 		return response;
 	}
 	
+	//start tls connect
 	startTls(options) {
-		this.initSocket(tls.connect({ socket: this.socket, ...options }));
+		return new Promise((resolve, reject) => {
+			this.initSocket(tls.connect({ socket: this.socket, ...options }, resolve));
+		});
 	}
 }
 
